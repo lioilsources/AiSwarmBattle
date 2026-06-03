@@ -1,0 +1,26 @@
+[project]
+name = "mirrorbooth-retrieval"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "langgraph>=0.2",
+    "langchain-openai>=0.2",
+    "openai>=1.50",
+    "httpx>=0.27",
+    "chromadb-client>=0.5",
+    "pydantic>=2.9",
+    "python-ulid>=2.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "RUF"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
