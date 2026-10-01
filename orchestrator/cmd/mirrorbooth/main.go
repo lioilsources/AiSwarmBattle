@@ -144,6 +144,7 @@ func (h *handler) runPipeline(jobID string, req PipelineRunRequest) {
 		"LITELLM_URL="+h.cfg.LiteLLMURL,
 		"EMBED_URL="+h.cfg.EmbedURL,
 		"CHROMA_URL="+h.cfg.ChromaURL,
+		"EVALUATOR_URL="+h.cfg.EvaluatorURL,
 	)
 	out, err := cmd.CombinedOutput()
 
@@ -247,6 +248,7 @@ type config struct {
 	LiteLLMURL     string
 	EmbedURL       string
 	ChromaURL      string
+	EvaluatorURL   string
 }
 
 func loadConfig() config {
@@ -257,6 +259,7 @@ func loadConfig() config {
 		LiteLLMURL:      envOrDefault("LITELLM_URL",        "http://dgx-spark:4001"),
 		EmbedURL:        envOrDefault("EMBED_URL",          "http://dgx-spark:8005"),
 		ChromaURL:       envOrDefault("CHROMA_URL",         "http://dgx-spark:8006"),
+		EvaluatorURL:    envOrDefault("EVALUATOR_URL",      "http://dgx-spark:8081"),
 	}
 }
 

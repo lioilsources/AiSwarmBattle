@@ -28,6 +28,9 @@ from .state import Constraints, RetrievalState, ShaderRequest
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
 
+# Keep in sync with EvaluatorURL default in orchestrator/cmd/mirrorbooth/main.go.
+DEFAULT_EVALUATOR_URL = "http://dgx-spark:8081"
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Retrieve and install a MirrorBooth shader from ShaderToy KB")
@@ -55,7 +58,7 @@ async def _run(args: argparse.Namespace) -> int:
         openai_client=client,
         embed_url=os.environ["EMBED_URL"],
         chroma_url=os.environ["CHROMA_URL"],
-        evaluator_url=os.environ.get("EVALUATOR_URL", ""),
+        evaluator_url=os.environ.get("EVALUATOR_URL", DEFAULT_EVALUATOR_URL),
     )
 
     constraints = Constraints(

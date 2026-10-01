@@ -10,11 +10,12 @@ from ..verify import verify
 
 log = logging.getLogger(__name__)
 
+# Mirrors MirrorBoothUniformsAnimated in pkg/types/contract.go. Uniforms not
+# declared by the shader (e.g. uTime in static shaders) are ignored by the evaluator.
 _EVAL_UNIFORMS = [
-    {"name": "uResolution",    "type": "vec2",      "default": [1080, 1920]},
-    {"name": "uTime",          "type": "float",     "default": 0.0},
-    {"name": "uCameraTexture", "type": "sampler2D", "default": None},
-    {"name": "uMouse",         "type": "vec2",      "default": [0, 0]},
+    {"name": "uTexture",    "type": "sampler2D", "default": None},
+    {"name": "uResolution", "type": "vec2",      "default": [1080, 1920]},
+    {"name": "uTime",       "type": "float",     "default": 0.0},
 ]
 
 _FAST_CONFIG = {
@@ -96,7 +97,8 @@ def _passes_gate(result: dict) -> bool:
     for res in result.get("runtime", {}).get("per_resolution", []):
         if res.get("nan_inf_detected"):
             return False
-        if res.get("median_frame_ms", 999) > 8:
+        # Software-rendered (llvmpipe) timings are informational only.
+        if not res.get("software_renderer") and res.get("median_frame_ms", 999) > 8:
             return False
     return True
 

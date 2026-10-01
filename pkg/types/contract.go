@@ -30,13 +30,13 @@ func (c *Constraints) ApplyDefaults() {
 
 // FragFile is the output of the retrieval pipeline — a ready-to-install Flutter shader.
 type FragFile struct {
-	Name      string `json:"name"`       // e.g. "filter_neon_bokeh" (no extension)
-	Content   []byte `json:"content"`    // full .frag file content
-	NeedsTime bool   `json:"needs_time"` // true if shader uses uTime
-	Label     string `json:"label"`      // short display label, e.g. "Neon"
-	Icon      string `json:"icon"`       // single unicode char, e.g. "✨"
-	Source    string `json:"source"`     // retrieved|adapted|generated
-	ShaderID  string `json:"shader_id"`  // original ShaderToy ID
+	Name      string  `json:"name"`       // e.g. "filter_neon_bokeh" (no extension)
+	Content   []byte  `json:"content"`    // full .frag file content
+	NeedsTime bool    `json:"needs_time"` // true if shader uses uTime
+	Label     string  `json:"label"`      // short display label, e.g. "Neon"
+	Icon      string  `json:"icon"`       // single unicode char, e.g. "✨"
+	Source    string  `json:"source"`     // retrieved|adapted|generated
+	ShaderID  string  `json:"shader_id"`  // original ShaderToy ID
 	EvalScore float64 `json:"eval_score,omitempty"`
 }
 
@@ -53,15 +53,15 @@ type UniformInfo struct {
 // MirrorBoothUniforms is the fixed uniform layout for static (non-animated) shaders.
 // Flutter sets image samplers separately from floats.
 var MirrorBoothUniforms = []UniformInfo{
-	{Index: 0, Name: "uTexture",    Type: "sampler2D", Semantic: "camera"},  // setImageSampler(0, ...)
-	{Index: 0, Name: "uResolution", Type: "vec2",      Semantic: "resolution"}, // setFloat(0, w); setFloat(1, h)
+	{Index: 0, Name: "uTexture", Type: "sampler2D", Semantic: "camera"},   // setImageSampler(0, ...)
+	{Index: 0, Name: "uResolution", Type: "vec2", Semantic: "resolution"}, // setFloat(0, w); setFloat(1, h)
 }
 
 // MirrorBoothUniformsAnimated is the layout for animated shaders (needsTime=true).
 var MirrorBoothUniformsAnimated = []UniformInfo{
-	{Index: 0, Name: "uTexture",    Type: "sampler2D", Semantic: "camera"},
-	{Index: 0, Name: "uResolution", Type: "vec2",      Semantic: "resolution"}, // setFloat(0, w); setFloat(1, h)
-	{Index: 2, Name: "uTime",       Type: "float",     Semantic: "time"},        // setFloat(2, t)
+	{Index: 0, Name: "uTexture", Type: "sampler2D", Semantic: "camera"},
+	{Index: 0, Name: "uResolution", Type: "vec2", Semantic: "resolution"}, // setFloat(0, w); setFloat(1, h)
+	{Index: 2, Name: "uTime", Type: "float", Semantic: "time"},            // setFloat(2, t)
 }
 
 // MirrorBoothPreamble is the Flutter/Impeller preamble for static shaders.
@@ -99,12 +99,12 @@ type Provenance struct {
 
 // PipelineResult is the full output of one pipeline run, used by the management API.
 type PipelineResult struct {
-	RequestID  string      `json:"request_id"`
-	FragFile   FragFile    `json:"frag_file"`
+	RequestID  string        `json:"request_id"`
+	FragFile   FragFile      `json:"frag_file"`
 	Retrieval  RetrievalInfo `json:"retrieval"`
-	Provenance Provenance  `json:"provenance"`
-	Installed  bool        `json:"installed"`
-	LatencyMS  int64       `json:"latency_ms"`
+	Provenance Provenance    `json:"provenance"`
+	Installed  bool          `json:"installed"`
+	LatencyMS  int64         `json:"latency_ms"`
 }
 
 // EvalRequest is sent to the evaluator HTTP service (EVALUATOR.md).
@@ -142,9 +142,11 @@ type EvalResult struct {
 }
 
 type CompileResult struct {
-	OK       bool         `json:"ok"`
-	Errors   []Diagnostic `json:"errors"`
-	Warnings []Diagnostic `json:"warnings"`
+	OK             bool         `json:"ok"`
+	Errors         []Diagnostic `json:"errors"`
+	Warnings       []Diagnostic `json:"warnings"`
+	SpirvB64       string       `json:"spirv_b64"` // OpenGL-semantics SPIR-V, base64; empty when compile fails
+	SpirvSizeBytes int          `json:"spirv_size_bytes"`
 }
 
 type Diagnostic struct {
@@ -155,24 +157,39 @@ type Diagnostic struct {
 }
 
 type StaticResult struct {
-	LOC          int `json:"loc"`
-	LOCLogical   int `json:"loc_logical"`
-	TexReads     int `json:"tex_reads"`
-	EstimatedALU int `json:"estimated_alu"`
+	LOC              int    `json:"loc"`
+	LOCLogical       int    `json:"loc_logical"`
+	FunctionCount    int    `json:"function_count"`
+	BranchCount      int    `json:"branch_count"`
+	LoopCount        int    `json:"loop_count"`
+	LoopMaxIter      int    `json:"loop_max_iter"` // -1 when any loop bound is not statically known
+	TexReads         int    `json:"tex_reads"`
+	UniformCount     int    `json:"uniform_count"`
+	UsesDiscard      bool   `json:"uses_discard"`
+	UsesDerivatives  bool   `json:"uses_derivatives"`
+	PrecisionDefault string `json:"precision_default"` // highp|mediump|lowp|none
+	EstimatedALU     int    `json:"estimated_alu"`
 }
 
 type RuntimeResult struct {
 	PerResolution []ResolutionResult `json:"per_resolution"`
+	Renderer      string             `json:"renderer,omitempty"`       // GL_RENDERER of the profiling context
+	SkippedReason string             `json:"skipped_reason,omitempty"` // set when runtime stage did not run
 }
 
 type ResolutionResult struct {
-	Width           int     `json:"width"`
-	Height          int     `json:"height"`
-	FramesRendered  int     `json:"frames_rendered"`
-	MedianFrameMS   float64 `json:"median_frame_ms"`
-	P95FrameMS      float64 `json:"p95_frame_ms"`
-	NaNInfDetected  bool    `json:"nan_inf_detected"`
-	BlackFrameCount int     `json:"black_frame_count"`
+	Width              int     `json:"width"`
+	Height             int     `json:"height"`
+	FramesRendered     int     `json:"frames_rendered"`
+	MedianFrameMS      float64 `json:"median_frame_ms"`
+	P95FrameMS         float64 `json:"p95_frame_ms"`
+	FirstFrameMS       float64 `json:"first_frame_ms"`
+	NaNInfDetected     bool    `json:"nan_inf_detected"`
+	BlackFrameCount    int     `json:"black_frame_count"`
+	ConstantFrameCount int     `json:"constant_frame_count"`
+	// SoftwareRenderer marks timings from a CPU rasterizer (llvmpipe). Such
+	// timings are informational only and do not participate in the gate.
+	SoftwareRenderer bool `json:"software_renderer"`
 }
 
 type ScoreResult struct {
@@ -191,7 +208,7 @@ func (r *EvalResult) PassesGate() bool {
 		if res.NaNInfDetected {
 			return false
 		}
-		if res.MedianFrameMS > 8 {
+		if !res.SoftwareRenderer && res.MedianFrameMS > 8 {
 			return false
 		}
 	}
