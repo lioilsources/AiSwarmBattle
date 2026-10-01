@@ -74,6 +74,26 @@ Result for 2026.10.1: all 24 pass; composite 98.28–100 (static only); estimate
 heaviest are `filter_oil` (3457) and `filter_glow` (3116), both with 5x5 texture kernels.
 Thresholds were set so that every production filter keeps code_quality >= 9.
 
+Runtime (EGL, Mesa llvmpipe in the `test` Docker stage, fast config 60 frames @ 1080x1920,
+MirrorBooth uniforms with semantics camera/resolution/time): all 24 pass, no NaN/Inf, no black
+or constant frames; llvmpipe median 4.9–73 ms/frame (informational only, `software_renderer`).
+Heaviest request (`filter_glow`) takes 4.6 s wall on llvmpipe, under the 8 s budget.
+Hardware (NVIDIA GB10) timings and the `perf_target` thresholds are not yet validated.
+
+### Runtime measurement rules
+
+- Frame time = CPU wall time around draw + `glFinish` (no GPU timer queries; core GLES 3.0
+  has none). Warm-up discarded: first 10 frames when > 20 rendered, otherwise the first.
+  `first_frame_ms` is frame 0.
+- Render target RGBA32F (`GL_EXT_color_buffer_float` required) so NaN/Inf survive readback.
+- Per frame: 128x128 nearest-neighbour sample for NaN/Inf; full last frame checked too.
+- Black frame: every RGB channel <= 1/255 on the full frame (sample only pre-filters).
+- Constant frame: only for shaders with an active `time` uniform; full-frame hash equals the
+  frame 30 frames earlier (0.5 s at 60 fps).
+- Camera samplers get a deterministic 512x512 RGBA8 gradient + checkerboard image.
+- Shaders with a non-constant loop bound skip runtime (`skipped_reason: unbounded_loop`):
+  a hung draw call cannot be interrupted and would stall the single GL context.
+
 Next step: device timings (Snapdragon class phone) for a subset → regression on cost weights.
 
 ## History

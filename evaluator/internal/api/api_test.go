@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/lioilsources/shaderbattle/evaluator/internal/egl"
 	"github.com/lioilsources/shaderbattle/evaluator/internal/glslang"
 	"github.com/lioilsources/shaderbattle/pkg/types"
 )
@@ -25,10 +26,34 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if _, err := exec.LookPath(bin); err != nil {
 		t.Skipf("glslangValidator not available: %v", err)
 	}
-	s := New(&glslang.Compiler{Bin: bin}, slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
+	s := New(&glslang.Compiler{Bin: bin}, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Renderer: testRenderer(t)})
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+// testRenderer returns an EGL renderer when EVALUATOR_TEST_EGL is set
+// (auto|software), nil otherwise.
+func testRenderer(t *testing.T) *egl.Renderer {
+	t.Helper()
+	mode := os.Getenv("EVALUATOR_TEST_EGL")
+	if mode == "" {
+		return nil
+	}
+	r, err := egl.New(egl.Options{PreferSoftware: mode == "software"})
+	if err != nil {
+		t.Fatalf("egl: %v", err)
+	}
+	t.Cleanup(r.Close)
+	return r
+}
+
+// mirrorBoothUniforms mirrors _EVAL_UNIFORMS in
+// pipelines/mirrorbooth_retrieval/nodes/evaluator.py.
+var mirrorBoothUniforms = []types.EvalUniform{
+	{Name: "uTexture", Type: "sampler2D", Semantic: "camera"},
+	{Name: "uResolution", Type: "vec2", Default: []any{1080.0, 1920.0}, Semantic: "resolution"},
+	{Name: "uTime", Type: "float", Default: 0.0, Semantic: "time"},
 }
 
 func post(t *testing.T, url string, body any) (*http.Response, []byte) {
@@ -62,7 +87,7 @@ func TestEvaluate(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, body := post(t, ts.URL, types.EvalRequest{RequestID: "t1", GLSLES: tc.glsl})
+			resp, body := post(t, ts.URL, types.EvalRequest{RequestID: "t1", GLSLES: tc.glsl, Uniforms: mirrorBoothUniforms})
 			if resp.StatusCode != tc.wantStatus {
 				t.Fatalf("status %d: %s", resp.StatusCode, body)
 			}
@@ -126,7 +151,7 @@ func TestCorpusCalibration(t *testing.T) {
 			}
 			var runs [2]types.EvalResult
 			for i := range runs {
-				resp, body := post(t, ts.URL, types.EvalRequest{RequestID: "calib", GLSLES: string(src)})
+				resp, body := post(t, ts.URL, types.EvalRequest{RequestID: "calib", GLSLES: string(src), Uniforms: mirrorBoothUniforms})
 				if resp.StatusCode != 200 {
 					t.Fatalf("status %d: %s", resp.StatusCode, body)
 				}
@@ -143,6 +168,14 @@ func TestCorpusCalibration(t *testing.T) {
 			}
 			if a.Score.Composite != b.Score.Composite || a.Static != b.Static || a.Compile.SpirvB64 != b.Compile.SpirvB64 {
 				t.Errorf("non-deterministic result")
+			}
+			for _, r := range a.Runtime.PerResolution {
+				t.Logf("runtime %dx%d frames=%d median=%.3fms p95=%.3fms first=%.3fms nan=%v black=%d constant=%d sw=%v",
+					r.Width, r.Height, r.FramesRendered, r.MedianFrameMS, r.P95FrameMS, r.FirstFrameMS,
+					r.NaNInfDetected, r.BlackFrameCount, r.ConstantFrameCount, r.SoftwareRenderer)
+			}
+			if a.Runtime.SkippedReason != "" {
+				t.Logf("runtime skipped: %s", a.Runtime.SkippedReason)
 			}
 			t.Logf("composite=%6.2f alu=%5d tex=%2d loops=%d/%d branches=%d breakdown=%v",
 				a.Score.Composite, a.Static.EstimatedALU, a.Static.TexReads,

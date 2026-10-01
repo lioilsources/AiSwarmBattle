@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lioilsources/shaderbattle/evaluator/internal/api"
+	"github.com/lioilsources/shaderbattle/evaluator/internal/egl"
 	"github.com/lioilsources/shaderbattle/evaluator/internal/glslang"
 )
 
@@ -31,7 +32,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	srv := api.New(compiler, log, cfg.MaxCompiles)
+	var renderer *egl.Renderer
+	if cfg.EGLMode != "off" {
+		renderer, err = egl.New(egl.Options{PreferSoftware: cfg.EGLMode == "software"})
+		if err != nil {
+			// Compile + static scoring still works; runtime is reported as skipped.
+			log.Warn("egl init failed, runtime stage disabled", "err", err)
+		} else {
+			defer renderer.Close()
+			info := renderer.Info()
+			log.Info("egl initialized", "renderer", info.Renderer, "gl_version", info.Version, "software", info.Software)
+		}
+	}
+
+	srv := api.New(compiler, log, api.Options{
+		MaxCompiles:   cfg.MaxCompiles,
+		Renderer:      renderer,
+		RuntimeBudget: time.Duration(cfg.RuntimeBudgetMS) * time.Millisecond,
+	})
 	httpSrv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           srv.Handler(),
@@ -53,19 +71,24 @@ func main() {
 }
 
 type config struct {
-	Addr        string
-	GlslangBin  string
-	LogFormat   string
-	MaxCompiles int
+	Addr            string
+	GlslangBin      string
+	LogFormat       string
+	MaxCompiles     int
+	EGLMode         string // auto|software|off
+	RuntimeBudgetMS int
 }
 
 func loadConfig() config {
 	maxCompiles, _ := strconv.Atoi(os.Getenv("EVALUATOR_MAX_COMPILES"))
+	budget, _ := strconv.Atoi(os.Getenv("EVALUATOR_RUNTIME_BUDGET_MS"))
 	return config{
-		Addr:        envOrDefault("EVALUATOR_ADDR", ":8081"),
-		GlslangBin:  envOrDefault("GLSLANG_VALIDATOR", "glslangValidator"),
-		LogFormat:   envOrDefault("EVALUATOR_LOG_FORMAT", "json"),
-		MaxCompiles: maxCompiles,
+		Addr:            envOrDefault("EVALUATOR_ADDR", ":8081"),
+		GlslangBin:      envOrDefault("GLSLANG_VALIDATOR", "glslangValidator"),
+		LogFormat:       envOrDefault("EVALUATOR_LOG_FORMAT", "json"),
+		MaxCompiles:     maxCompiles,
+		EGLMode:         envOrDefault("EVALUATOR_EGL", "auto"),
+		RuntimeBudgetMS: budget,
 	}
 }
 

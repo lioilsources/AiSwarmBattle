@@ -117,8 +117,12 @@ type EvalRequest struct {
 
 type EvalUniform struct {
 	Name    string `json:"name"`
-	Type    string `json:"type"`
+	Type    string `json:"type"` // float|vec2|vec3|vec4|int|sampler2D
 	Default any    `json:"default"`
+	// Semantic tells the profiler how to drive the uniform per frame:
+	// "time" (default + frame/60 s), "resolution" (render target size),
+	// "camera" (deterministic test image). Empty = constant Default.
+	Semantic string `json:"semantic,omitempty"`
 }
 
 type EvalConfig struct {

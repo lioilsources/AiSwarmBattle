@@ -13,9 +13,9 @@ log = logging.getLogger(__name__)
 # Mirrors MirrorBoothUniformsAnimated in pkg/types/contract.go. Uniforms not
 # declared by the shader (e.g. uTime in static shaders) are ignored by the evaluator.
 _EVAL_UNIFORMS = [
-    {"name": "uTexture",    "type": "sampler2D", "default": None},
-    {"name": "uResolution", "type": "vec2",      "default": [1080, 1920]},
-    {"name": "uTime",       "type": "float",     "default": 0.0},
+    {"name": "uTexture",    "type": "sampler2D", "default": None,         "semantic": "camera"},
+    {"name": "uResolution", "type": "vec2",      "default": [1080, 1920], "semantic": "resolution"},
+    {"name": "uTime",       "type": "float",     "default": 0.0,          "semantic": "time"},
 ]
 
 _FAST_CONFIG = {

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/lioilsources/shaderbattle/evaluator/internal/egl"
 	"github.com/lioilsources/shaderbattle/evaluator/internal/glslang"
 	"github.com/lioilsources/shaderbattle/evaluator/internal/preprocess"
 	"github.com/lioilsources/shaderbattle/evaluator/internal/score"
@@ -28,28 +29,47 @@ const (
 	maxDimension      = 4096
 	defaultFrames     = 60
 	defaultMaxCompile = 10
+	defaultBudget     = 8 * time.Second
 )
 
 var defaultResolutions = [][2]int{{1080, 1920}}
 
-// Server handles evaluation requests. Compiles run concurrently up to
-// MaxCompiles.
+// Options configure a Server. Zero values use defaults.
+type Options struct {
+	// MaxCompiles bounds concurrent glslang runs (default 10).
+	MaxCompiles int
+	// Renderer profiles shaders at runtime; nil disables the runtime stage.
+	Renderer *egl.Renderer
+	// RuntimeBudget caps total rendering time per request across all
+	// resolutions (default 8 s; the pipeline client times out at 12 s).
+	RuntimeBudget time.Duration
+}
+
+// Server handles evaluation requests. Compiles run concurrently; rendering is
+// serialized by the Renderer.
 type Server struct {
 	Compiler *glslang.Compiler
 	Log      *slog.Logger
 
+	renderer   *egl.Renderer
+	budget     time.Duration
 	compileSem chan struct{}
 }
 
-// New builds a Server. maxCompiles <= 0 uses the default of 10.
-func New(compiler *glslang.Compiler, log *slog.Logger, maxCompiles int) *Server {
-	if maxCompiles <= 0 {
-		maxCompiles = defaultMaxCompile
+// New builds a Server.
+func New(compiler *glslang.Compiler, log *slog.Logger, opts Options) *Server {
+	if opts.MaxCompiles <= 0 {
+		opts.MaxCompiles = defaultMaxCompile
+	}
+	if opts.RuntimeBudget <= 0 {
+		opts.RuntimeBudget = defaultBudget
 	}
 	return &Server{
 		Compiler:   compiler,
 		Log:        log,
-		compileSem: make(chan struct{}, maxCompiles),
+		renderer:   opts.Renderer,
+		budget:     opts.RuntimeBudget,
+		compileSem: make(chan struct{}, opts.MaxCompiles),
 	}
 }
 
@@ -120,16 +140,130 @@ func (s *Server) Evaluate(ctx context.Context, req *types.EvalRequest) (*types.E
 
 	res.Static = static.Analyze(src, static.DefaultWeights)
 
-	if !comp.OK {
-		res.Runtime.SkippedReason = "compile_failed"
-	} else {
-		// TODO: runtime profiler (EGL) is not wired yet.
-		res.Runtime.SkippedReason = "runtime_not_implemented"
+	if err := s.runtimeStage(ctx, req, src, start, res); err != nil {
+		return nil, err
 	}
 
 	res.Score = score.Compute(res, score.DefaultWeights)
 	res.WallTimeMS = time.Since(start).Milliseconds()
 	return res, nil
+}
+
+// runtimeStage fills res.Runtime. It only returns an error when the request
+// context ended; profiling problems are reported via skipped_reason.
+func (s *Server) runtimeStage(ctx context.Context, req *types.EvalRequest, src string, start time.Time, res *types.EvalResult) error {
+	switch {
+	case !res.Compile.OK:
+		res.Runtime.SkippedReason = "compile_failed"
+		return nil
+	case req.Config.SkipRuntime:
+		res.Runtime.SkippedReason = "skipped_by_request"
+		return nil
+	case s.renderer == nil:
+		res.Runtime.SkippedReason = "egl_unavailable"
+		return nil
+	case res.Static.LoopMaxIter < 0:
+		// A non-constant loop bound may never terminate; a hung draw call
+		// cannot be interrupted and would stall the single render context.
+		res.Runtime.SkippedReason = "unbounded_loop"
+		return nil
+	}
+
+	info := s.renderer.Info()
+	res.Runtime.Renderer = info.Renderer
+	if info.Software {
+		res.CostModelVersion += "+sw"
+	}
+	uniforms := toUniforms(req.Uniforms)
+	deadline := start.Add(s.budget)
+
+	for _, wh := range req.Config.TargetResolutions {
+		r, err := s.renderer.Render(ctx, egl.Job{
+			Source:   src,
+			Uniforms: uniforms,
+			Width:    wh[0],
+			Height:   wh[1],
+			Frames:   req.Config.TestDurationFrames,
+			Deadline: deadline,
+		})
+		var ce *egl.CompileError
+		switch {
+		case errors.As(err, &ce):
+			res.Compile.OK = false
+			res.Compile.Errors = append(res.Compile.Errors, types.Diagnostic{
+				Severity: "error", Message: "gles driver: " + ce.Log,
+			})
+			res.Compile.SpirvB64, res.Compile.SpirvSizeBytes = "", 0
+			res.Runtime.PerResolution = []types.ResolutionResult{}
+			res.Runtime.SkippedReason = "driver_compile_failed"
+			return nil
+		case ctx.Err() != nil:
+			return fmt.Errorf("runtime: %w", ctx.Err())
+		case err != nil:
+			res.Runtime.SkippedReason = "runtime_error: " + err.Error()
+			return nil
+		}
+		res.Runtime.PerResolution = append(res.Runtime.PerResolution, types.ResolutionResult{
+			Width:              wh[0],
+			Height:             wh[1],
+			FramesRendered:     r.FramesRendered,
+			MedianFrameMS:      r.MedianMS,
+			P95FrameMS:         r.P95MS,
+			FirstFrameMS:       r.FirstFrameMS,
+			NaNInfDetected:     r.NaNInf,
+			BlackFrameCount:    r.BlackFrames,
+			ConstantFrameCount: r.ConstantFrames,
+			SoftwareRenderer:   info.Software,
+		})
+		if r.Truncated {
+			res.Runtime.SkippedReason = "budget_exceeded"
+			break
+		}
+	}
+	return nil
+}
+
+// toUniforms converts request uniforms. Missing semantics fall back to the
+// MirrorBooth / ShaderToy naming conventions.
+func toUniforms(in []types.EvalUniform) []egl.Uniform {
+	out := make([]egl.Uniform, 0, len(in))
+	for _, u := range in {
+		sem := u.Semantic
+		if sem == "" {
+			switch {
+			case u.Type == "sampler2D":
+				sem = "camera"
+			case u.Name == "uTime" || u.Name == "iTime":
+				sem = "time"
+			case u.Name == "uResolution" || u.Name == "iResolution":
+				sem = "resolution"
+			}
+		}
+		out = append(out, egl.Uniform{Name: u.Name, Type: u.Type, Value: toFloats(u.Default), Semantic: sem})
+	}
+	return out
+}
+
+func toFloats(v any) []float64 {
+	switch x := v.(type) {
+	case float64:
+		return []float64{x}
+	case bool:
+		if x {
+			return []float64{1}
+		}
+		return []float64{0}
+	case []any:
+		out := make([]float64, 0, len(x))
+		for _, e := range x {
+			if f, ok := e.(float64); ok {
+				out = append(out, f)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +273,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":            EvaluatorVersion,
 		"cost_model_version": costModelVersion(),
 		"glslang_version":    ver,
+		"egl_initialized":    s.renderer != nil,
+	}
+	if s.renderer != nil {
+		info := s.renderer.Info()
+		body["renderer"] = info.Renderer
+		body["software_renderer"] = info.Software
 	}
 	status := http.StatusOK
 	if err != nil {
