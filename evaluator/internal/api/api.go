@@ -14,6 +14,7 @@ import (
 	"github.com/lioilsources/shaderbattle/evaluator/internal/glslang"
 	"github.com/lioilsources/shaderbattle/evaluator/internal/preprocess"
 	"github.com/lioilsources/shaderbattle/evaluator/internal/score"
+	"github.com/lioilsources/shaderbattle/evaluator/internal/static"
 	"github.com/lioilsources/shaderbattle/pkg/types"
 )
 
@@ -117,6 +118,8 @@ func (s *Server) Evaluate(ctx context.Context, req *types.EvalRequest) (*types.E
 		SpirvSizeBytes: len(comp.SPIRV),
 	}
 
+	res.Static = static.Analyze(src, static.DefaultWeights)
+
 	if !comp.OK {
 		res.Runtime.SkippedReason = "compile_failed"
 	} else {
@@ -124,7 +127,7 @@ func (s *Server) Evaluate(ctx context.Context, req *types.EvalRequest) (*types.E
 		res.Runtime.SkippedReason = "runtime_not_implemented"
 	}
 
-	res.Score = score.Compute(res)
+	res.Score = score.Compute(res, score.DefaultWeights)
 	res.WallTimeMS = time.Since(start).Milliseconds()
 	return res, nil
 }

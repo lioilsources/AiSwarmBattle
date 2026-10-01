@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/lioilsources/shaderbattle/evaluator/internal/glslang"
@@ -100,5 +101,52 @@ func TestHealthz(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
+	}
+}
+
+// TestCorpusCalibration evaluates every shader in $EVALUATOR_CORPUS_DIR (e.g.
+// MirrorBooth/mirrorbooth/shaders or the bootstrap ingest corpus). All of them
+// are known-good production filters, so each must compile, pass the gate and
+// score identically across two runs.
+func TestCorpusCalibration(t *testing.T) {
+	dir := os.Getenv("EVALUATOR_CORPUS_DIR")
+	if dir == "" {
+		t.Skip("EVALUATOR_CORPUS_DIR not set")
+	}
+	ts := newTestServer(t)
+	files, _ := filepath.Glob(filepath.Join(dir, "*.frag"))
+	if len(files) == 0 {
+		t.Fatalf("no .frag files in %s", dir)
+	}
+	for _, f := range files {
+		t.Run(filepath.Base(f), func(t *testing.T) {
+			src, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var runs [2]types.EvalResult
+			for i := range runs {
+				resp, body := post(t, ts.URL, types.EvalRequest{RequestID: "calib", GLSLES: string(src)})
+				if resp.StatusCode != 200 {
+					t.Fatalf("status %d: %s", resp.StatusCode, body)
+				}
+				if err := json.Unmarshal(body, &runs[i]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			a, b := runs[0], runs[1]
+			if !a.Compile.OK {
+				t.Fatalf("compile failed: %+v", a.Compile.Errors)
+			}
+			if !a.PassesGate() {
+				t.Errorf("gate failed: score=%v", a.Score)
+			}
+			if a.Score.Composite != b.Score.Composite || a.Static != b.Static || a.Compile.SpirvB64 != b.Compile.SpirvB64 {
+				t.Errorf("non-deterministic result")
+			}
+			t.Logf("composite=%6.2f alu=%5d tex=%2d loops=%d/%d branches=%d breakdown=%v",
+				a.Score.Composite, a.Static.EstimatedALU, a.Static.TexReads,
+				a.Static.LoopCount, a.Static.LoopMaxIter, a.Static.BranchCount, a.Score.Breakdown)
+		})
 	}
 }
