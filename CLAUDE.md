@@ -6,6 +6,8 @@ AI swarm orchestration system. Go workspace with two modules (`orchestrator`, `p
 
 Currently active pipeline: `mirrorbooth_retrieval` — shader/style retrieval for MirrorBooth.
 
+**SPARK status: cold.** No windows or containers are allocated for this project on SPARK. Unblocking is described in AiStack `PLAN-spark-scheduler.md` §6. GPU work goes through `spark-broker` only (see global rules). The resident-stack instructions in `Prompts/01-*.md` are outdated.
+
 ## Structure
 
 ```
@@ -60,7 +62,7 @@ go build ./mirrorbooth/...
 
 | Var | Description |
 |-----|-------------|
-| `LITELLM_URL` | LiteLLM gateway (e.g. `http://192.168.88.66:8080`) |
+| `LITELLM_URL` | LiteLLM gateway (e.g. `http://$SPARK_HOST:4001`, see `.env.example`) |
 | `EMBED_URL` | Embedding model endpoint |
 | `LITELLM_API_KEY` | Optional, defaults to `dummy` |
 

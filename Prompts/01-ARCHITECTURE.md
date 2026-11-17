@@ -90,6 +90,8 @@ Shader je **build-time asset** — Flutter ho zkompiluje přes Impeller. Žádn�
 
 ## 3. Modely a SPARK
 
+> **Zastaralé (2026-11):** Projekt je na SPARKu „cold“ — nemá žádná okna ani kontejnery. Rezidentní služby níže ani ruční `docker compose`/`make up-swarm` na SPARKu neplatí; GPU práce jde jen přes `spark-broker` (`sparkctl`). Odblokování: AiStack `PLAN-spark-scheduler.md` §6.
+
 ### AiSwarmBattle (vyžaduje SPARK)
 
 | Model | HF ID | VRAM | Port | Kdy |
@@ -108,7 +110,7 @@ Shader je **build-time asset** — Flutter ho zkompiluje přes Impeller. Žádn�
 
 | Komponenta | Model | Kde |
 |---|---|---|
-| LLM (style_architect, glsl_coder, ranker) | konfigurovatelný — teď `llama3` @ `192.168.88.66:8000` | SPARK nebo libovolný OpenAI-API server |
+| LLM (style_architect, glsl_coder, ranker) | konfigurovatelný — teď `llama3` @ `$SPARK_HOST:8000` | SPARK nebo libovolný OpenAI-API server |
 | Embedding | `all-MiniLM-L6-v2` | CPU, lokálně |
 | ChromaDB | — | lokální soubor |
 | glslangValidator | Khronos binary | dev machine |
@@ -118,6 +120,8 @@ Shader je **build-time asset** — Flutter ho zkompiluje přes Impeller. Žádn�
 ## 4. Závislosti a kde poběží
 
 ### SPARK (DGX, docker-compose.swarm.yaml v `../AiStack/deploy/`)
+
+> **Zastaralé:** viz poznámka v §3 — projekt je na SPARKu „cold“, kontejnery neběží.
 
 ```
 swarm-nano      vllm/vllm-openai  Nemotron-Nano-30B

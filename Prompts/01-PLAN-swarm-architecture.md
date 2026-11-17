@@ -2,6 +2,8 @@
 
 > Plán pro deploy orchestrátor LLM vrstvy Pipeline B (LangGraph hybrid) na DGX Spark.
 > Implementace žije v `../AiStack/deploy/docker-compose.swarm.yaml`.
+>
+> **Zastaralé (2026-11):** Plán počítá s rezidentním stackem na SPARKu („vždy running“) a ručním `make up-swarm`. Projekt je teď na SPARKu „cold“ — žádná okna ani kontejnery; GPU práce jen přes `spark-broker` (`sparkctl`). Odblokování: AiStack `PLAN-spark-scheduler.md` §6.
 
 ---
 
